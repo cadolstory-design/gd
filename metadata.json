@@ -1,0 +1,8 @@
+{
+  "name": "고든병원 직원 포털 (Gordon Hospital Staff Portal)",
+  "description": "사번 기반 로그인, 일정 관리, 공지사항 및 푸시 알림 기능을 갖춘 고든병원 전용 직원 협업 앱입니다.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}
