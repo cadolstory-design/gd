@@ -3,144 +3,163 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>고든병원 직원 포털 - 관리자</title>
+    <title>고든병원 직원 포털</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Pretendard:wght@400;600;700&display=swap" rel="stylesheet">
     <style>
-        body { font-family: 'Pretendard', sans-serif; margin: 0; background-color: #f8fafc; }
-        .glass { background: rgba(255, 255, 255, 0.8); backdrop-filter: blur(8px); }
-        .admin-gradient { background: linear-gradient(135deg, #003066 0%, #001a33 100%); }
-        ::-webkit-scrollbar { display: none; }
+        body { font-family: 'Pretendard', sans-serif; background-color: #f8fafc; -webkit-tap-highlight-color: transparent; }
+        .admin-card { background: linear-gradient(135deg, #fff5f5 0%, #ffffff 100%); border: 1px solid #fee2e2; }
     </style>
 </head>
 <body>
     <div id="root"></div>
 
     <script type="text/babel">
-        const { useState } = React;
+        const { useState, useEffect } = React;
+
+        // 사용자의 정보 자동 세팅
+        const SPREADSHEET_ID = '1pbdHHfsAoy2PAWBcWJSa71qdRnWl4TzTqgHvdjTs4GQ';
+        const API_URL = 'https://script.google.com/macros/s/AKfycbx9sqnqDZSeZcGyt77cFEAzDVYKHm6ptHBSjk1w_ZR_Fbz_P0o3VAJrqKUGRZgqWGJJfQ/exec'; 
+        const STAFF_URL = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}/gviz/tq?tqx=out:json&sheet=staff`;
+        const NOTICE_URL = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}/gviz/tq?tqx=out:json&sheet=notices`;
 
         const App = () => {
             const [isLoggedIn, setIsLoggedIn] = useState(false);
             const [isAdmin, setIsAdmin] = useState(false);
             const [activeTab, setActiveTab] = useState('home');
-            const [loginData, setLoginData] = useState({ id: '', pw: '' });
-            
-            // 데이터 상태 관리
-            const [notices, setNotices] = useState([
-                { id: 1, content: "[필독] 2026년도 상반기 직무 교육 안내", date: "2026-02-04" }
-            ]);
-            const [staffs, setStaffs] = useState([{ id: '1001', name: '홍길동' }]);
+            const [user, setUser] = useState({ name: '', id: '' });
+            const [staffList, setStaffList] = useState([]);
+            const [notices, setNotices] = useState([]);
+            const [newNotice, setNewNotice] = useState('');
+            const [loading, setLoading] = useState(false);
 
-            const handleLogin = (e) => {
-                e.preventDefault();
-                if (loginData.id === 'admin' && loginData.pw === '1234') {
-                    setIsAdmin(true);
-                    setIsLoggedIn(true);
-                } else if (loginData.id && loginData.pw) {
-                    setIsAdmin(false);
-                    setIsLoggedIn(true);
-                } else {
-                    alert("사번과 비밀번호를 입력해주세요.");
+            // 데이터 로드 함수
+            const fetchData = async () => {
+                try {
+                    // 직원 정보 로드
+                    const sRes = await fetch(STAFF_URL);
+                    const sText = await sRes.text();
+                    const sJson = JSON.parse(sText.substr(47).slice(0, -2));
+                    setStaffList(sJson.table.rows.map(r => ({
+                        id: String(r.c[0]?.v || ''),
+                        name: String(r.c[1]?.v || ''),
+                        role: String(r.c[2]?.v || '').toLowerCase()
+                    })));
+
+                    // 공지사항 로드
+                    const nRes = await fetch(NOTICE_URL);
+                    const nText = await nRes.text();
+                    const nJson = JSON.parse(nText.substr(47).slice(0, -2));
+                    setNotices(nJson.table.rows.map(r => ({
+                        content: r.c[0]?.v || '',
+                        date: r.c[1]?.v || ''
+                    })).reverse()); // 최신순
+                } catch (e) { console.error("데이터 로드 실패", e); }
+            };
+
+            useEffect(() => { fetchData(); }, []);
+
+            // 공지사항 등록 (관리자 전용)
+            const handleAddNotice = async () => {
+                if (!newNotice.trim()) return;
+                setLoading(true);
+                try {
+                    await fetch(API_URL, {
+                        method: 'POST',
+                        mode: 'no-cors', // CORS 이슈 방지
+                        body: JSON.stringify({
+                            sheetName: 'notices',
+                            content: newNotice,
+                            date: new Date().toLocaleDateString('ko-KR')
+                        })
+                    });
+                    alert('공지가 시트에 등록되었습니다!');
+                    setNewNotice('');
+                    setTimeout(fetchData, 1500); // 시트 반영 시간 대기 후 갱신
+                } catch (e) {
+                    alert('등록 중 오류가 발생했습니다.');
+                } finally {
+                    setLoading(false);
                 }
             };
 
-            const sendPushNotification = (content) => {
-                alert(`🔔 [전직원 푸시 알림 전송]\n내용: ${content}`);
+            const handleLogin = (e) => {
+                e.preventDefault();
+                const found = staffList.find(s => s.id === user.id && s.name === user.name);
+                if (found) {
+                    setIsLoggedIn(true);
+                    if (found.role === 'admin') setIsAdmin(true);
+                } else {
+                    alert('등록된 정보가 없습니다. 이름과 사번을 확인해주세요.');
+                }
             };
 
-            // 1. 로그인 화면
-            if (!isLoggedIn) {
-                return (
-                    <div className="flex items-center justify-center min-h-screen p-4 admin-gradient">
-                        <div className="glass p-8 rounded-3xl shadow-2xl w-full max-w-md border border-white/20">
-                            <div className="flex justify-center mb-6">
-                                <div className="w-16 h-16 bg-white rounded-2xl flex items-center justify-center shadow-lg text-[#003066] text-3xl font-bold">G</div>
-                            </div>
-                            <h1 className="text-2xl font-bold text-center text-white mb-2">고든병원 포털</h1>
-                            <form onSubmit={handleLogin} className="space-y-4">
-                                <input type="text" placeholder="사번" className="w-full p-4 rounded-xl border-none bg-white/20 text-white placeholder:text-white/50 outline-none" onChange={(e) => setLoginData({...loginData, id: e.target.value})} />
-                                <input type="password" placeholder="비밀번호" className="w-full p-4 rounded-xl border-none bg-white/20 text-white placeholder:text-white/50 outline-none" onChange={(e) => setLoginData({...loginData, pw: e.target.value})} />
-                                <button className="w-full bg-white text-[#003066] p-4 rounded-xl font-bold hover:bg-slate-100 transition-all">로그인</button>
-                            </form>
-                        </div>
+            if (!isLoggedIn) return (
+                <div className="flex items-center justify-center min-h-screen bg-[#003066] p-6">
+                    <div className="bg-white/10 backdrop-blur-lg p-8 rounded-[2.5rem] w-full max-w-sm border border-white/20">
+                        <h2 className="text-2xl font-bold text-white mb-8 text-center uppercase tracking-widest">Gordon Portal</h2>
+                        <form onSubmit={handleLogin} className="space-y-4">
+                            <input type="text" placeholder="성함" className="w-full p-4 rounded-2xl bg-white text-slate-800 outline-none" onChange={e => setUser({...user, name: e.target.value})} />
+                            <input type="text" placeholder="사번" className="w-full p-4 rounded-2xl bg-white text-slate-800 outline-none" onChange={e => setUser({...user, id: e.target.value})} />
+                            <button className="w-full bg-blue-500 text-white p-4 rounded-2xl font-bold hover:bg-blue-400 active:scale-95 transition-all">로그인</button>
+                        </form>
                     </div>
-                );
-            }
+                </div>
+            );
 
             return (
-                <div className="min-h-screen pb-24 bg-slate-50">
-                    <header className="bg-[#003066] text-white p-5 shadow-lg flex justify-between items-center sticky top-0 z-50">
-                        <h1 className="font-bold text-lg">고든병원 {isAdmin ? 'ADMIN' : '포털'}</h1>
-                        <button onClick={() => window.location.reload()} className="text-[10px] bg-white/10 px-3 py-1 rounded-full text-white/70">로그아웃</button>
+                <div className="min-h-screen pb-28">
+                    <header className="bg-[#003066] text-white p-6 rounded-b-[2.5rem] shadow-xl flex justify-between items-end">
+                        <div>
+                            <p className="text-[10px] opacity-50 font-bold mb-1 uppercase tracking-tighter">Staff Only</p>
+                            <h1 className="text-xl font-bold">{user.name} {isAdmin ? '관리자' : '님'}</h1>
+                        </div>
+                        <button onClick={() => window.location.reload()} className="text-[10px] bg-white/10 px-3 py-1.5 rounded-full font-bold">로그아웃</button>
                     </header>
-                    
-                    <main className="p-4 space-y-5">
-                        {/* 관리자 전용 대시보드 */}
-                        {isAdmin && activeTab === 'admin' && (
-                            <div className="space-y-6 animate-in slide-in-from-bottom-4 duration-500">
-                                <section className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
-                                    <h2 className="text-blue-900 font-bold mb-4 flex items-center">👤 신규 아이디 등록</h2>
-                                    <div className="flex gap-2">
-                                        <input id="newStaff" type="text" placeholder="이름" className="flex-1 p-3 bg-slate-50 rounded-xl text-sm border-none outline-none focus:ring-1 focus:ring-blue-500" />
-                                        <button onClick={() => {
-                                            const name = document.getElementById('newStaff').value;
-                                            if(name) { setStaffs([...staffs, {id: Date.now().toString().slice(-4), name}]); alert('등록완료'); }
-                                        }} className="bg-blue-900 text-white px-4 py-2 rounded-xl text-sm font-bold">등록</button>
-                                    </div>
-                                    <div className="mt-4 flex flex-wrap gap-2">
-                                        {staffs.map(s => <span key={s.id} className="text-[10px] bg-slate-100 px-2 py-1 rounded-md text-slate-500">{s.name}({s.id})</span>)}
-                                    </div>
-                                </section>
 
-                                <section className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
-                                    <h2 className="text-blue-900 font-bold mb-4">📢 공지사항 관리 및 알림</h2>
-                                    <textarea id="noticeInput" placeholder="공지 내용을 입력하세요..." className="w-full p-4 bg-slate-50 rounded-xl text-sm border-none outline-none h-24 mb-3" />
-                                    <div className="flex gap-2">
-                                        <button onClick={() => {
-                                            const val = document.getElementById('noticeInput').value;
-                                            if(val) setNotices([{id: Date.now(), content: val, date: '2026-02-04'}, ...notices]);
-                                        }} className="flex-1 bg-slate-100 text-slate-700 py-3 rounded-xl font-bold text-sm">저장만 하기</button>
-                                        <button onClick={() => {
-                                            const val = document.getElementById('noticeInput').value;
-                                            if(val) { sendPushNotification(val); setNotices([{id: Date.now(), content: val, date: '2026-02-04'}, ...notices]); }
-                                        }} className="flex-1 bg-blue-900 text-white py-3 rounded-xl font-bold text-sm shadow-lg shadow-blue-200">저장 후 알림발송</button>
-                                    </div>
-                                </section>
+                    <main className="p-6">
+                        {/* 관리자 공지 작성창 */}
+                        {isAdmin && (
+                            <div className="admin-card p-6 rounded-[2rem] mb-8 shadow-sm">
+                                <h3 className="text-red-600 font-bold mb-3 flex items-center gap-2">📢 공지사항 등록 (관리자)</h3>
+                                <textarea 
+                                    className="w-full p-4 rounded-2xl border border-red-100 bg-white text-sm h-28 focus:ring-2 ring-red-100 outline-none transition-all"
+                                    placeholder="전 직원에게 전달할 내용을 입력하세요..."
+                                    value={newNotice}
+                                    onChange={e => setNewNotice(e.target.value)}
+                                ></textarea>
+                                <button 
+                                    onClick={handleAddNotice}
+                                    disabled={loading}
+                                    className={`w-full mt-3 p-4 rounded-2xl font-bold text-white shadow-lg transition-all ${loading ? 'bg-slate-300' : 'bg-red-500 active:scale-95'}`}
+                                >
+                                    {loading ? '시트에 저장 중...' : '공지 올리기'}
+                                </button>
                             </div>
                         )}
 
-                        {activeTab === 'home' && (
-                            <div className="space-y-4">
-                                <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100">
-                                    <h2 className="font-bold mb-3 flex items-center gap-2">📢 최신 공지</h2>
-                                    <div className="space-y-2">
-                                        {notices.map(n => (
-                                            <div key={n.id} className="p-3 bg-slate-50 rounded-xl text-xs text-slate-600 border-l-2 border-blue-900">
-                                                {n.content} <span className="block text-[8px] text-slate-400 mt-1">{n.date}</span>
-                                            </div>
-                                        ))}
-                                    </div>
+                        {/* 공지사항 목록 */}
+                        <div className="space-y-4">
+                            <h3 className="font-bold text-slate-800 flex items-center gap-2 px-2">최신 공지</h3>
+                            {notices.length > 0 ? notices.map((n, i) => (
+                                <div key={i} className="bg-white p-5 rounded-3xl shadow-sm border border-slate-100 animate-in fade-in duration-500">
+                                    <p className="text-sm text-slate-700 leading-relaxed break-all">{n.content}</p>
+                                    <p className="text-[10px] text-slate-400 mt-3 font-medium">{n.date}</p>
                                 </div>
-                                <div className="grid grid-cols-2 gap-4">
-                                    <div className="bg-blue-900 p-6 rounded-3xl text-white shadow-xl shadow-blue-100 flex flex-col items-center">
-                                        <span className="text-3xl mb-1">📅</span><span className="text-xs font-bold">당직표</span>
-                                    </div>
-                                    <div className="bg-white p-6 rounded-3xl border border-slate-100 flex flex-col items-center">
-                                        <span className="text-3xl mb-1">📋</span><span className="text-xs font-bold text-slate-700">업무지침</span>
-                                    </div>
-                                </div>
-                            </div>
-                        )}
+                            )) : (
+                                <div className="py-20 text-center text-slate-300 text-sm">등록된 공지사항이 없습니다.</div>
+                            )}
+                        </div>
                     </main>
 
-                    <nav className="fixed bottom-6 left-6 right-6 bg-white/90 backdrop-blur-xl border border-white/50 shadow-2xl rounded-[2rem] flex justify-around p-3 z-50">
-                        <button onClick={() => setActiveTab('home')} className={`p-2 transition-all ${activeTab === 'home' ? 'text-blue-900 scale-110' : 'text-slate-300'}`}>🏠</button>
-                        <button onClick={() => alert('서비스 준비중')} className={`p-2 ${activeTab === 'cal' ? 'text-blue-900' : 'text-slate-300'}`}>📅</button>
-                        {isAdmin && <button onClick={() => setActiveTab('admin')} className={`p-2 transition-all ${activeTab === 'admin' ? 'text-red-500 scale-125' : 'text-slate-300'}`}>⚙️</button>}
-                        <button onClick={() => setActiveTab('profile')} className={`p-2 ${activeTab === 'profile' ? 'text-blue-900' : 'text-slate-300'}`}>👤</button>
+                    {/* 하단 네비게이션 */}
+                    <nav className="fixed bottom-6 left-6 right-6 bg-white/80 backdrop-blur-xl shadow-2xl rounded-full flex justify-around p-2 border border-white">
+                        <button onClick={() => setActiveTab('home')} className={`p-4 rounded-full transition-all ${activeTab === 'home' ? 'bg-[#003066] text-white shadow-lg' : 'text-slate-300'}`}>🏠</button>
+                        <button onClick={() => alert('일정 관리 기능은 준비 중입니다.')} className="p-4 text-slate-300">📅</button>
+                        <button onClick={() => setActiveTab('profile')} className={`p-4 rounded-full transition-all ${activeTab === 'profile' ? 'bg-[#003066] text-white shadow-lg' : 'text-slate-300'}`}>👤</button>
                     </nav>
                 </div>
             );
